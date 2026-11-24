@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Eclipse Demo</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Eclipse Demo</h1>
+  <span class="status" id="status" role="status"></span>
+  <button id="playAll" class="primary">Alle abspielen</button>
+  <button id="editToggle" aria-pressed="false">Bearbeiten</button>
+  <button id="settingsOpen">Einstellungen</button>
+</header>
+<div class="banner" id="banner" hidden>
+  <p id="bannerText"></p>
+  <a id="bannerLink" class="button primary" target="_blank" rel="noopener" hidden></a>
+  <button id="bannerAction" class="primary" hidden></button>
+</div>
+<nav id="filters" aria-label="Kategorie"></nav>
+<main id="grid"></main>
+
+<footer id="bar" hidden>
+  <progress id="barProgress" max="1" value="0" aria-label="Fortschritt"></progress>
+  <div class="what">
+    <div class="t" id="barTitle"></div>
+    <div class="s" id="barTime"></div>
+  </div>
+  <div class="buttons">
+    <button id="barPause">Pause</button>
+    <button id="barNext">Nächste</button>
+    <button id="barStop">Stopp</button>
+  </div>
+</footer>
+
+<dialog id="demoDialog" aria-labelledby="demoHeading">
+  <form method="dialog" id="demoForm">
+    <h2 id="demoHeading">Demo bearbeiten</h2>
+    <p class="crumb" id="fFile"></p>
+    <label>Titel<input id="fTitle" autocomplete="off"></label>
+    <div class="row">
+      <label>Untertitel<input id="fSubtitle" autocomplete="off" placeholder="z. B. Dolby Atmos"></label>
+      <label>Kategorie<input id="fCategory" list="categories" autocomplete="off"></label>
+      <datalist id="categories"></datalist>
+    </div>
+    <div class="row">
+      <label>Start<input id="fStart" inputmode="numeric" autocomplete="off" placeholder="0:00"></label>
+      <button type="button" id="startNow">Jetzt</button>
+      <label>Ende<input id="fEnd" inputmode="numeric" autocomplete="off" placeholder="bis zum Schluss"></label>
+      <button type="button" id="endNow">Jetzt</button>
+    </div>
+    <p class="hint">Zeiten als Stunden:Minuten:Sekunden. „Jetzt“ übernimmt die Stelle, die der Zidoo gerade bei dieser Datei zeigt.</p>
+    <label id="volumeRow" hidden>Lautstärke der StormAudio in dB (leer = nicht ändern)<input id="fVolume" inputmode="decimal" autocomplete="off" placeholder="z. B. -25"></label>
+    <div class="actions">
+      <button type="button" id="demoTry">Anspielen</button>
+      <span class="spacer"></span>
+      <button type="button" id="demoCancel" class="quiet">Abbrechen</button>
+      <button type="submit" class="primary">Sichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog" aria-labelledby="settingsHeading">
+  <div class="body">
+    <h2 id="settingsHeading">Einstellungen</h2>
+    <section>
+      <h3>Demo-Ordner</h3>
+      <p class="hint">Neue Dateien hier ablegen; Unterordner werden zu Kategorien:</p>
+      <p class="mono" id="sMedia"></p>
+    </section>
+    <section>
+      <h3>Zidoo</h3>
+      <p class="hint" id="sZidoo"></p>
+      <p class="hint">Derselbe Ordner, wie der Zidoo ihn sieht:</p>
+      <p class="mono" id="sFolder"></p>
+      <div class="row wrap">
+        <button type="button" id="folderSearch">Neu suchen</button>
+        <button type="button" id="folderBrowse">Von Hand wählen</button>
+      </div>
+    </section>
+    <section>
+      <h3>StormAudio</h3>
+      <p class="hint" id="sStorm"></p>
+    </section>
+    <div class="actions">
+      <button type="button" id="settingsClose" class="primary">Fertig</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="browseDialog" aria-labelledby="browseHeading">
+  <div class="body">
+    <h2 id="browseHeading">Ordner auf dem Zidoo</h2>
+    <p class="crumb" id="browsePath"></p>
+    <ul class="files" id="browseList"></ul>
+    <div class="actions">
+      <button type="button" id="browseUp">Eine Ebene höher</button>
+      <span class="spacer"></span>
+      <button type="button" id="browseCancel" class="quiet">Abbrechen</button>
+      <button type="button" id="browsePick" class="primary">Diesen Ordner nehmen</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="alert" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

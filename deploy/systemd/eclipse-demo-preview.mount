@@ -1,0 +1,19 @@
+# Installiert als /etc/systemd/system/srv-eclipse\x2ddemo-media-preview.mount
+# (Name: systemd-escape -p --suffix=mount /srv/eclipse-demo/media/preview).
+# Demo-Ordner der UNAS, nur lesend, für den Container eclipse-demo (UID 10050).
+[Unit]
+Description=Eclipse Demo preview folder on UNAS (read-only)
+Requires=heimserver-unas-credentials.service heimserver-network-ready.service
+After=network-online.target heimserver-unas-credentials.service heimserver-network-ready.service
+Wants=network-online.target
+BindsTo=heimserver-unas-credentials.service
+
+[Mount]
+What=//unas.home.arpa/Cinema/Demos/Preview
+Where=/srv/eclipse-demo/media/preview
+Type=cifs
+Options=credentials=/run/heimserver-unas/smb.credentials,vers=3.1.1,seal,uid=10050,gid=10050,forceuid,forcegid,file_mode=0440,dir_mode=0550,ro,nosuid,nodev,noexec,_netdev,rsize=1048576
+TimeoutSec=45
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+# Eclipse Demo (Demo-Launcher für den Zidoo). Heimnetz und VPN.
+http://demo.home.arpa {
+    redir https://demo.home.arpa{uri} 308
+}
+
+https://demo.home.arpa {
+    tls {
+        issuer internal {
+            ca nexus
+        }
+    }
+    encode zstd gzip
+    route {
+        @demoOutsideTrusted not remote_ip 192.168.1.0/24 192.168.9.0/24
+        respond @demoOutsideTrusted "Nur im Heimnetz oder über VPN erreichbar." 403
+        reverse_proxy http://eclipse-demo:8080 {
+            header_up -X-Orbit-Legacy-Feed
+        }
+        header {
+            Strict-Transport-Security "max-age=31536000"
+        }
+    }
+}

@@ -1,0 +1,54 @@
+services:
+  eclipse-demo:
+    image: ${EDEMO_IMAGE:-eclipse-demo:local}
+    build:
+      context: ..
+    container_name: eclipse-demo
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "10050:10050"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      EDEMO_REQUIRE_MOUNT: "1"
+      EDEMO_FOLDER_LABEL: '\\unas.home.arpa\Cinema\Demos\Preview'
+      ZIDOO_HOST: ${ZIDOO_HOST:-192.168.1.56}
+      UNAS_HOSTS: 192.168.1.88,unas.home.arpa,unas
+      UNAS_SHARE: Cinema
+      UNAS_SUBPATH: Demos/Preview
+      STORM_HOST: ${STORM_HOST:-192.168.1.230}
+      STORM_MAX_VOLUME: ${STORM_MAX_VOLUME:--15}
+      HA_URL: https://homeassistant.home.arpa
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /srv/eclipse-demo/data:/data
+      # Der Elternordner wird mit rslave eingebunden: Hängt systemd die
+      # UNAS-Freigabe erst nach dem Containerstart ein, sieht der Container
+      # sie trotzdem.
+      - type: bind
+        source: /srv/eclipse-demo/media
+        target: /media
+        read_only: true
+        bind:
+          propagation: rslave
+    networks:
+      - nexus
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  nexus:
+    external: true
+    name: nexus_default
