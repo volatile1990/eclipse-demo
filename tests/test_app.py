@@ -28,9 +28,10 @@ class EclipseDemoTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         media = os.path.join(cls.tmp.name, "media")
-        os.makedirs(os.path.join(media, "Musik"))
+        os.makedirs(os.path.join(media, "Musik", "Atmos"))
+        os.makedirs(os.path.join(media, ".intern"))
         for name in ("01 Größter Film & Co.mkv", "02_Zweite_Szene.mp4", "Musik/Lied.flac",
-                     "notizen.txt", ".versteckt.mkv"):
+                     "Musik/Atmos/Tief.flac", "notizen.txt", ".versteckt.mkv", ".intern/geheim.mkv"):
             open(os.path.join(media, *name.split("/")), "wb").close()
         cls.media = media
         cls.zport, cls.port = free_port(), free_port()
@@ -97,10 +98,11 @@ class EclipseDemoTest(unittest.TestCase):
     # ----------------------------------------------------------- Tests
     def test_01_folder_scan(self):
         demos = self.demos()
-        self.assertEqual([(d["title"], d["category"], d["kind"]) for d in demos], [
-            ("01 Größter Film & Co", "Film", "video"),
-            ("02 Zweite Szene", "Film", "video"),
-            ("Lied", "Musik", "music")])
+        self.assertEqual([(d["title"], d["category"], d["kind"], d["folder"]) for d in demos], [
+            ("01 Größter Film & Co", "Film", "video", ""),
+            ("02 Zweite Szene", "Film", "video", ""),
+            ("Lied", "Musik", "music", "Musik"),
+            ("Tief", "Musik", "music", "Musik/Atmos")])
 
     def test_02_scene_with_start_and_end(self):
         a = self.demo("01 Größter Film & Co")
@@ -120,21 +122,22 @@ class EclipseDemoTest(unittest.TestCase):
     def test_03_play_all_in_order(self):
         ids = [d["id"] for d in self.demos()]
         self.call("/api/playall", {})
-        seen, end = [], time.time() + 50
+        seen, end = [], time.time() + 80
         while time.time() < end:
             s = self.state()
             if s["active"] and (not seen or seen[-1] != s["active"]["id"]):
                 seen.append(s["active"]["id"])
-                self.assertEqual(s["active"]["count"], 3)
+                self.assertEqual(s["active"]["count"], 4)
             if seen == ids and s["active"] is None:
                 break
             time.sleep(0.2)
         self.assertEqual(seen, ids)
 
     def test_04_remote_takes_over(self):
-        self.call("/api/playall", {"category": "Musik"})
-        s = self.wait(lambda s: s["active"] and s["active"]["phase"] == "running", what="Musik")
+        self.call("/api/playall", {"folder": "Musik/Atmos"})
+        s = self.wait(lambda s: s["active"] and s["active"]["phase"] == "running", what="Atmos-Ordner")
         self.assertEqual(s["active"]["count"], 1)
+        self.assertEqual(s["playing"]["path"], FOLDER + "/Musik/Atmos/Tief.flac")
         other = FOLDER + "/02_Zweite_Szene.mp4"
         self.call("/remote-open?path=" + other.replace(" ", "%20").replace("#", "%23"),
                   base=f"http://127.0.0.1:{self.zport}")
@@ -156,12 +159,18 @@ class EclipseDemoTest(unittest.TestCase):
         self.stop()
 
     def test_06_reorder_and_new_file(self):
-        lied = self.demo("Lied")
-        self.call("/api/demos/move", {"id": lied["id"], "dir": -1})
-        self.assertEqual([d["title"] for d in self.demos()][1:], ["Lied", "02 Zweite Szene"])
+        before = [d["title"] for d in self.demos()]
+        # Einziger Eintrag in seinem Ordner: Verschieben ändert nichts
+        self.call("/api/demos/move", {"id": self.demo("Tief")["id"], "dir": 1})
+        self.assertEqual([d["title"] for d in self.demos()], before)
+        # Innerhalb der obersten Ebene tauschen die beiden Filme
+        self.call("/api/demos/move", {"id": self.demo("02 Zweite Szene")["id"], "dir": -1})
+        self.assertEqual([d["id"] for d in self.demos()][:2], ["02_Zweite_Szene.mp4", "01 Größter Film & Co.mkv"])
+        self.call("/api/demos/move", {"id": self.demo("02 Zweite Szene")["id"], "dir": 1})
         open(os.path.join(self.media, "03 Neu.mkv"), "wb").close()
         self.wait(lambda s: any(d["title"] == "03 Neu" for d in self.demos()), 15, "neue Datei")
-        self.assertEqual(self.demos()[-1]["title"], "03 Neu")
+        root = [d["title"] for d in self.demos() if d["folder"] == ""]
+        self.assertEqual(root[-1], "03 Neu")   # neue Datei: ans Ende ihres Ordners
         os.remove(os.path.join(self.media, "03 Neu.mkv"))
         self.wait(lambda s: not any(d["title"] == "03 Neu" for d in self.demos()), 15, "Datei weg")
         code, body, _ = self.call("/api/play", {"id": "03 Neu.mkv"})
@@ -176,6 +185,15 @@ class EclipseDemoTest(unittest.TestCase):
         with urlopen(f"http://127.0.0.1:{self.port}/") as r:
             self.assertIn("default-src 'self'", r.headers["Content-Security-Policy"])
             self.assertIn(b"Eclipse Demo", r.read())
+
+    def test_09_play_folder_recursive(self):
+        self.call("/api/playall", {"folder": "Musik"})
+        s = self.wait(lambda s: s["active"] and s["active"]["phase"] == "running", what="Musik-Ordner")
+        self.assertEqual(s["active"]["count"], 2)
+        # Eigene Dateien vor dem Unterordner, obwohl "Atmos/..." alphabetisch vor "Lied" liegt
+        self.assertEqual(s["active"]["id"], "Musik/Lied.flac")
+        self.stop()
+        self.assertEqual(self.call("/api/playall", {"folder": "Gibt/Es/Nicht"})[0], 400)
 
     def test_08_browse_to_share(self):
         root = self.call("/api/browse?path=")[1]["entries"]

@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 let demos = [], state = null, filter = '', editing = false;
 let version = 0, noticeId = null, editId = null, gridKey = '';
 let browseStack = [];
+let cur = folderFromHash();   // aktuell geöffneter Ordner, '' = oberste Ebene
 
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
@@ -47,8 +48,54 @@ function parseTime(text, name) {
 }
 
 // ------------------------------------------------------------- Kacheln
-const categories = () => [...new Set(demos.map(d => d.category))];
-const visible = () => demos.filter(d => !filter || d.category === filter);
+const inFolder = (d, f) => !f || d.folder === f || d.folder.startsWith(f + '/');
+const here = () => demos.filter(d => d.folder === cur);
+const categories = () => [...new Set(here().map(d => d.category))];
+const visible = () => here().filter(d => !filter || d.category === filter);
+
+// ------------------------------------------------------------- Ordner
+function folderFromHash() {
+  const h = location.hash.replace(/^#\/?/, '');
+  return h ? h.split('/').map(decodeURIComponent).join('/') : '';
+}
+function openFolder(f) {
+  const target = f ? '#/' + f.split('/').map(encodeURIComponent).join('/') : '#/';
+  if (location.hash !== target) location.hash = target; else { cur = f; filter = ''; render(true); }
+}
+window.addEventListener('hashchange', () => { cur = folderFromHash(); filter = ''; render(true); window.scrollTo(0, 0); });
+
+function subfolders() {
+  const seen = new Map();
+  for (const d of demos) {
+    if (!inFolder(d, cur) || d.folder === cur) continue;
+    const rest = cur ? d.folder.slice(cur.length + 1) : d.folder;
+    const name = rest.split('/')[0];
+    const path = cur ? cur + '/' + name : name;
+    const entry = seen.get(path) || { name, path, count: 0 };
+    entry.count++;
+    seen.set(path, entry);
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
+}
+
+function renderCrumbs() {
+  const nav = $('crumbs');
+  if (!cur) { nav.hidden = true; nav.replaceChildren(); return; }
+  const parts = cur.split('/');
+  const items = [el('button', { class: 'back', onclick: () => openFolder(parts.slice(0, -1).join('/')) }, 'Zurück'),
+                 el('button', { class: 'crumb-link', onclick: () => openFolder('') }, 'Demos')];
+  parts.forEach((name, i) => {
+    items.push(el('span', { class: 'sep', 'aria-hidden': 'true' }, '›'));
+    const path = parts.slice(0, i + 1).join('/');
+    items.push(i === parts.length - 1
+      ? el('span', { class: 'here', 'aria-current': 'page' }, name)
+      : el('button', { class: 'crumb-link', onclick: () => openFolder(path) }, name));
+  });
+  nav.replaceChildren(...items);
+  nav.hidden = false;
+}
+
+const FOLDER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" fill="currentColor"/></svg>';
 const online = () => !!(state && state.zidoo.online);
 
 function renderFilters() {
@@ -68,6 +115,19 @@ function span(d) {
 
 function renderGrid() {
   const activeId = state && state.active ? state.active.id : '';
+  const activeDemo = demos.find(d => d.id === activeId);
+  const folderTiles = filter ? [] : subfolders().map(f => {
+    const icon = el('span', { class: 'ficon' });
+    icon.innerHTML = FOLDER_ICON;
+    const playing = activeDemo && inFolder(activeDemo, f.path);
+    return el('div', { class: 'tile folder' + (playing ? ' active' : '') },
+      el('button', { class: 'play', 'aria-label': 'Ordner ' + f.name + ' öffnen', onclick: () => openFolder(f.path) },
+        icon,
+        el('span', { class: 'title' }, f.name),
+        el('span', { class: 'meta' },
+          el('span', {}, f.count === 1 ? '1 Demo' : f.count + ' Demos'),
+          playing && el('span', { class: 'now' }, 'Läuft'))));
+  });
   const tiles = visible().map(d => {
     const isActive = d.id === activeId;
     const tile = el('div', { class: 'tile' + (isActive ? ' active' : '') },
@@ -84,6 +144,7 @@ function renderGrid() {
       el('button', { 'aria-label': d.title + ' bearbeiten', onclick: () => openDemo(d) }, 'Bearbeiten')));
     return tile;
   });
+  tiles.unshift(...folderTiles);
   if (!demos.length && state) {
     const ok = state.media.ok;
     tiles.push(el('div', { class: 'empty' },
@@ -97,8 +158,8 @@ function renderGrid() {
 }
 
 function render(force) {
-  const key = JSON.stringify([version, filter, editing, state && state.active && state.active.id, !!state]);
-  if (force || key !== gridKey) { gridKey = key; renderFilters(); renderGrid(); }
+  const key = JSON.stringify([version, cur, filter, editing, state && state.active && state.active.id, !!state]);
+  if (force || key !== gridKey) { gridKey = key; renderCrumbs(); renderFilters(); renderGrid(); }
   renderStatus();
   renderBar();
 }
@@ -128,8 +189,9 @@ function renderStatus() {
   if (link) { $('bannerLink').textContent = link[0]; $('bannerLink').href = link[1]; }
   $('bannerAction').hidden = !action;
   if (action) { $('bannerAction').textContent = action[0]; $('bannerAction').onclick = action[1]; }
-  $('playAll').disabled = !visible().length || !online() || !z.folder;
-  $('playAll').textContent = filter ? filter + ' abspielen' : 'Alle abspielen';
+  const queue = demos.filter(d => inFolder(d, cur) && (!filter || d.category === filter));
+  $('playAll').disabled = !queue.length || !online() || !z.folder;
+  $('playAll').textContent = filter ? filter + ' abspielen' : cur ? 'Ordner abspielen' : 'Alle abspielen';
 }
 
 function renderBar() {
@@ -253,7 +315,7 @@ $('editToggle').onclick = () => {
   $('editToggle').textContent = editing ? 'Fertig' : 'Bearbeiten';
   render(true);
 };
-$('playAll').onclick = act(() => api('/api/playall', { category: filter || null }));
+$('playAll').onclick = act(() => api('/api/playall', { folder: cur, category: filter || null }));
 $('barPause').onclick = act(() => api('/api/pause', {}));
 $('barNext').onclick = act(() => api('/api/next', {}));
 $('barStop').onclick = act(() => api('/api/stop', {}));
@@ -262,7 +324,14 @@ $('barStop').onclick = act(() => api('/api/stop', {}));
 async function poll() {
   try {
     state = await api('/api/state');
-    if (state.version !== version) { await loadDemos(); version = state.version; }
+    if (state.version !== version) {
+      await loadDemos(); version = state.version;
+      if (cur && !demos.some(d => inFolder(d, cur))) {
+        let up = cur;
+        while (up && !demos.some(d => inFolder(d, up))) up = up.includes('/') ? up.slice(0, up.lastIndexOf('/')) : '';
+        openFolder(up);
+      }
+    }
     if (noticeId !== null && state.notice.id !== noticeId && state.notice.text) toast(state.notice.text);
     noticeId = state.notice.id;
   } catch (e) {

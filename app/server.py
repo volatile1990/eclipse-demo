@@ -108,7 +108,7 @@ def scan_media():
             if ext not in VIDEO_EXT and ext not in AUDIO_EXT:
                 continue
             rel = os.path.relpath(os.path.join(root, name), MEDIA).replace(os.sep, "/")
-            folder = rel.split("/", 1)[0] if "/" in rel else ""
+            folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
             found.append({"id": rel, "kind": "music" if ext in AUDIO_EXT else "video", "folder": folder})
     found.sort(key=lambda f: f["id"].lower())
     return found
@@ -121,12 +121,13 @@ def nice_title(rel):
 
 def demo_view(f):
     m = library["meta"].get(f["id"], {})
-    default_cat = f["folder"] or ("Musik" if f["kind"] == "music" else "Film")
+    default_cat = "Musik" if f["kind"] == "music" else "Film"
     return {
         "id": f["id"],
         "title": m.get("title") or nice_title(f["id"]),
         "subtitle": m.get("subtitle") or "",
         "category": m.get("category") or default_cat,
+        "folder": f["folder"],
         "kind": f["kind"],
         "start": float(m.get("start") or 0),
         "end": m.get("end"),
@@ -139,7 +140,11 @@ def ordered_demos():
     known = [f for f in files if f["id"] in rank]
     known.sort(key=lambda f: rank[f["id"]])
     rest = [f for f in files if f["id"] not in rank]
-    return [demo_view(f) for f in known + rest]
+    ordered = known + rest
+    # Erst die Dateien eines Ordners, dann seine Unterordner alphabetisch (rekursiv);
+    # innerhalb eines Ordners gilt die eingestellte Reihenfolge (sort ist stabil).
+    ordered.sort(key=lambda f: tuple(c.casefold() for c in f["folder"].split("/") if c))
+    return [demo_view(f) for f in ordered]
 
 
 def media_loop():
@@ -554,11 +559,22 @@ def api_save_demo(body):
         bump()
 
 
+def in_folder(demo, folder):
+    """Liegt die Demo im Ordner `folder` oder einem seiner Unterordner? ("" = alles)"""
+    return not folder or demo["folder"] == folder or demo["folder"].startswith(folder + "/")
+
+
 def api_move(body):
+    """Verschiebt eine Demo um eine Stelle, aber nur innerhalb ihres eigenen Ordners."""
     with state_lock:
-        ids = [d["id"] for d in ordered_demos()]
-        i = ids.index(find_demo(str(body.get("id")))["id"])
-        j = i + (1 if int(body.get("dir", 1)) > 0 else -1)
+        demos = ordered_demos()
+        ids = [d["id"] for d in demos]
+        demo = find_demo(str(body.get("id")))
+        i = ids.index(demo["id"])
+        step = 1 if int(body.get("dir", 1)) > 0 else -1
+        j = i + step
+        while 0 <= j < len(ids) and demos[j]["folder"] != demo["folder"]:
+            j += step
         if 0 <= j < len(ids):
             ids[i], ids[j] = ids[j], ids[i]
             library["order"] = ids
@@ -572,8 +588,10 @@ def api_play(body):
 
 def api_play_all(body):
     category = body.get("category")
+    folder = str(body.get("folder") or "").strip("/")
     with state_lock:
-        queue = [snapshot(d) for d in ordered_demos() if not category or d["category"] == category]
+        queue = [snapshot(d) for d in ordered_demos()
+                 if in_folder(d, folder) and (not category or d["category"] == category)]
     if not queue:
         raise ValueError("Hier gibt es noch keine Demos.")
     start_demo(queue[0], queue, 0)
