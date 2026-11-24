@@ -7,16 +7,21 @@ vom Tablet oder Handy: **https://demo.home.arpa** (Heimnetz und VPN).
 
 - **Auswahl = Ordner.** Jede Video- oder Musikdatei in
   `\\unas.home.arpa\Cinema\Demos\Preview` erscheint nach wenigen Sekunden als
-  Kachel. Unterordner werden zu Kategorien (z. B. `Preview\Musik`); Dateien
-  direkt im Ordner landen unter „Film“ bzw. „Musik“.
+  Kachel. Unterordner erscheinen als Ordner-Kacheln zum Hineintippen, beliebig
+  tief; eine Pfadleiste führt zurück. Der geöffnete Ordner steht in der Adresse
+  (`#/Ordner/Unterordner`), Zurück im Browser funktioniert also.
 - **Der Zidoo spielt direkt von der UNAS.** Eclipse Demo sagt ihm nur, welche
   Datei er öffnen soll; Bild und Ton laufen nicht über den Heimserver.
 - **Pro Datei einstellbar** (Bearbeiten → Kachel): Titel, Untertitel,
   Kategorie, Start- und Endzeit sowie optional die Lautstärke der StormAudio.
   „Anspielen“ startet die Datei, „Jetzt“ übernimmt die aktuelle Stelle als
   Start oder Ende. Ohne Ende läuft die Datei bis zum Schluss.
-- **Alle abspielen** spielt die Auswahl (oder eine Kategorie) in der
-  angezeigten Reihenfolge; „Früher“/„Später“ im Bearbeiten-Modus ändert sie.
+- **Alle abspielen** (oberste Ebene) bzw. **Ordner abspielen** spielt alle
+  Demos des geöffneten Ordners samt Unterordnern: erst die Dateien des Ordners
+  in der eingestellten Reihenfolge, dann die Unterordner alphabetisch.
+  „Früher“/„Später“ im Bearbeiten-Modus ändert die Reihenfolge innerhalb eines
+  Ordners. Kategorien (Film/Musik oder selbst vergeben) filtern die Dateien des
+  geöffneten Ordners.
 - **Fernbedienung hat Vorrang.** Startet jemand am Zidoo etwas anderes, mischt
   sich Eclipse Demo nicht mehr ein.
 - Das Einschalten des Kinos bleibt bei Home Assistant. Ist der Zidoo aus, zeigt
