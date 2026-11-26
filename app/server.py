@@ -49,6 +49,14 @@ def log(text):
     print(time.strftime("%Y-%m-%d %H:%M:%S"), text, flush=True)
 
 
+def decode_zidoo_path(value):
+    """FileControl liefert absolute Pfade teils roh, teils mitsamt Schrägstrichen URL-kodiert."""
+    path = value or ""
+    if path.lower().startswith(("%2f", "%5c", "smb%3a%2f%2f", "nfs%3a%2f%2f", "file%3a%2f%2f")):
+        return unquote(path)
+    return path
+
+
 # ---------------------------------------------------------------- Speicher
 
 def load_library():
@@ -60,7 +68,7 @@ def load_library():
     except ValueError as e:
         sys.exit(f"{LIBRARY_FILE} ist kein gültiges JSON: {e}")
     return {"order": list(data.get("order") or []), "meta": dict(data.get("meta") or {}),
-            "zidooFolder": data.get("zidooFolder") or ""}
+            "zidooFolder": decode_zidoo_path(data.get("zidooFolder"))}
 
 
 def save_library():
@@ -183,9 +191,33 @@ def zidoo_get(path, timeout=2.5):
     return data if isinstance(data, dict) else {}
 
 
+def file_devices():
+    devices = zidoo_get("ZidooFileControl/getDevices", timeout=8).get("devices") or []
+    for device in devices:
+        device["path"] = decode_zidoo_path(device.get("path"))
+    return devices
+
+
+def file_hosts(path, ftype):
+    hosts = zidoo_get(f"ZidooFileControl/getHost?path={quote(path, safe='/')}&type={int(ftype)}",
+                      timeout=10).get("hosts") or []
+    for host in hosts:
+        host["ip"] = decode_zidoo_path(host.get("ip"))
+    return hosts
+
+
 def file_list(path, ftype=0, timeout=10):
-    return zidoo_get(f"ZidooFileControl/getFileList?path={quote(str(path), safe='/')}&type={int(ftype)}",
-                     timeout)
+    res = zidoo_get(f"ZidooFileControl/getFileList?path={quote(str(path), safe='/')}&type={int(ftype)}",
+                    timeout)
+    for entry in res.get("filelist") or []:
+        entry["path"] = decode_zidoo_path(entry.get("path"))
+    return res
+
+
+def playing_path(value):
+    if value and value.lower().startswith(("file://", "smb://", "nfs://")):
+        return unquote(value)
+    return decode_zidoo_path(value)
 
 
 def now_playing():
@@ -196,7 +228,7 @@ def now_playing():
     video = v.get("video")
     if v.get("status") == 200 and isinstance(video, dict):
         return {"kind": "video", "state": "playing" if video.get("status") == 1 else "paused",
-                "title": video.get("title") or "", "path": video.get("path") or "",
+                "title": video.get("title") or "", "path": playing_path(video.get("path")),
                 "position": int(video.get("currentPosition") or 0),
                 "duration": int(video.get("duration") or 0)}
     try:
@@ -206,7 +238,7 @@ def now_playing():
     music = m.get("playingMusic")
     if m.get("state") and isinstance(music, dict):
         return {"kind": "music", "state": "playing" if m.get("state") == 3 else "paused",
-                "title": music.get("title") or "", "path": music.get("uri") or "",
+                "title": music.get("title") or "", "path": playing_path(music.get("uri")),
                 "position": int(m.get("position") or 0), "duration": int(m.get("duration") or 0)}
     return None
 
@@ -224,7 +256,7 @@ def zidoo_seek(kind, ms):
 
 
 def norm(path):
-    return unquote(path or "").replace("\\", "/").rstrip("/").lower()
+    return (path or "").replace("\\", "/").rstrip("/").lower()
 
 
 def same_file(playing, wanted):
@@ -264,23 +296,21 @@ def is_unas(text):
 def find_folder():
     sub = UNAS_SUBPATH
     candidates = []
-    devices = zidoo_get("ZidooFileControl/getDevices", timeout=8).get("devices") or []
-    for dev in devices:
-        path, dtype = dev.get("path") or "", dev.get("type")
+    for dev in file_devices():
+        path, dtype = dev["path"], dev.get("type")
         if not path:
             continue
         if dtype in (1004, 1005) or is_unas(path) or UNAS_SHARE.lower() in path.lower():
             candidates += [f"{path}/{UNAS_SHARE}/{sub}", f"{path}/{sub}"]
         if dtype in (1004, 1005):
-            hosts = zidoo_get(f"ZidooFileControl/getHost?path={quote(path, safe='/')}&type={dtype}",
-                              timeout=10).get("hosts") or []
-            for host in hosts:
-                if not (is_unas(host.get("ip")) or is_unas(host.get("name"))):
+            for host in file_hosts(path, dtype):
+                host_path = host["ip"]
+                if not (is_unas(host_path) or is_unas(host.get("name"))):
                     continue
-                shares = file_list(host.get("ip") or "", host.get("type") or dtype).get("filelist") or []
+                shares = file_list(host_path, host.get("type") or dtype).get("filelist") or []
                 for share in shares:
                     name = (share.get("name") or "").rsplit("/", 1)[-1].lower()
-                    spath = share.get("path") or ""
+                    spath = share["path"]
                     if spath and (name == UNAS_SHARE.lower() or norm(spath).endswith(UNAS_SHARE.lower())):
                         candidates.insert(0, f"{spath}/{sub}")
     seen = set()
@@ -307,8 +337,7 @@ def search_folder(reason):
                 bump()
                 log(f"Demo-Ordner auf dem Zidoo: {found}")
         if not found and reason == "manual":
-            set_notice("Der Zidoo kennt den Demo-Ordner nicht. Lege am Zidoo die Freigabe "
-                       f"{UNAS_SHARE} der UNAS an oder wähle den Ordner von Hand.")
+            set_notice("Eclipse Demo hat den Demo-Ordner auf dem Zidoo nicht gefunden.")
     except ZidooError as e:
         if reason == "manual":
             set_notice(str(e))
@@ -320,20 +349,17 @@ def search_folder(reason):
 
 def browse(path, via, ftype):
     if not path:
-        res = zidoo_get("ZidooFileControl/getDevices", timeout=8)
         return {"path": "", "entries": [
-            {"name": d.get("name") or d.get("path"), "path": d.get("path"), "dir": True,
+            {"name": d.get("name") or d["path"], "path": d["path"], "dir": True,
              "via": "host" if d.get("type") in (1004, 1005) else "list", "type": d.get("type") or 0}
-            for d in res.get("devices") or [] if d.get("path")]}
+            for d in file_devices() if d["path"]]}
     if via == "host":
-        res = zidoo_get(f"ZidooFileControl/getHost?path={quote(path, safe='/')}&type={int(ftype)}",
-                        timeout=10)
         return {"path": path, "entries": [
-            {"name": h.get("name") or h.get("ip"), "path": h.get("ip"), "dir": True,
+            {"name": h.get("name") or h["ip"], "path": h["ip"], "dir": True,
              "via": "share", "type": h.get("type") or ftype}
-            for h in res.get("hosts") or [] if h.get("ip")]}
+            for h in file_hosts(path, ftype) if h["ip"]]}
     res = file_list(path, ftype if via == "share" else 0)
-    entries = [{"name": f.get("name"), "path": f.get("path"), "dir": True, "via": "list", "type": 0}
+    entries = [{"name": f.get("name"), "path": f["path"], "dir": True, "via": "list", "type": 0}
                for f in res.get("filelist") or []
                if f.get("type") == 0 and f.get("path") and not (f.get("isBDMV") or f.get("isBluray"))]
     entries.sort(key=lambda e: (e["name"] or "").lower())

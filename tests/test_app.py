@@ -11,10 +11,11 @@ import tempfile
 import time
 import unittest
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FOLDER = "/tmp/ramfs/mnt/192.168.1.88#SMB#Cinema/Demos/Preview"
+FOLDER = "/mnt/smb/192.168.1.88#Cinema/Demos/Preview"
 
 
 def free_port():
@@ -29,8 +30,9 @@ class EclipseDemoTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         media = os.path.join(cls.tmp.name, "media")
         os.makedirs(os.path.join(media, "Musik", "Atmos"))
+        os.makedirs(os.path.join(media, "100%2F + Grüße", "Details"))
         os.makedirs(os.path.join(media, ".intern"))
-        for name in ("01 Größter Film & Co.mkv", "02_Zweite_Szene.mp4", "Musik/Lied.flac",
+        for name in ("01 Größter Film & Co %2F.mkv", "02_Zweite_Szene.mp4", "Musik/Lied.flac",
                      "Musik/Atmos/Tief.flac", "notizen.txt", ".versteckt.mkv", ".intern/geheim.mkv"):
             open(os.path.join(media, *name.split("/")), "wb").close()
         cls.media = media
@@ -99,13 +101,13 @@ class EclipseDemoTest(unittest.TestCase):
     def test_01_folder_scan(self):
         demos = self.demos()
         self.assertEqual([(d["title"], d["category"], d["kind"], d["folder"]) for d in demos], [
-            ("01 Größter Film & Co", "Film", "video", ""),
+            ("01 Größter Film & Co %2F", "Film", "video", ""),
             ("02 Zweite Szene", "Film", "video", ""),
             ("Lied", "Musik", "music", "Musik"),
             ("Tief", "Musik", "music", "Musik/Atmos")])
 
     def test_02_scene_with_start_and_end(self):
-        a = self.demo("01 Größter Film & Co")
+        a = self.demo("01 Größter Film & Co %2F")
         code, body, _ = self.call("/api/demos", {"id": a["id"], "title": "Szene A", "start": 30, "end": 60})
         self.assertEqual(code, 200, body)
         self.wait(lambda s: any(d["title"] == "Szene A" for d in self.demos()), what="Titel")
@@ -113,7 +115,7 @@ class EclipseDemoTest(unittest.TestCase):
         self.assertEqual(self.call("/api/play", {"id": a["id"]})[0], 200)
         s = self.wait(lambda s: s["active"] and s["active"]["phase"] == "running", what="läuft")
         self.assertGreaterEqual(s["playing"]["position"], 27000)
-        self.assertEqual(s["playing"]["path"], FOLDER + "/01 Größter Film & Co.mkv")
+        self.assertEqual(s["playing"]["path"], FOLDER + "/01 Größter Film & Co %2F.mkv")
         self.wait(lambda s: s["active"] is None and s["playing"] is None, what="Ende")
         new = [c["path"] + json.dumps(c["query"], ensure_ascii=False) for c in self.zcalls()[n:]]
         self.assertTrue(any('seekTo{"positon": "30000"}' in c for c in new), new)
@@ -165,7 +167,7 @@ class EclipseDemoTest(unittest.TestCase):
         self.assertEqual([d["title"] for d in self.demos()], before)
         # Innerhalb der obersten Ebene tauschen die beiden Filme
         self.call("/api/demos/move", {"id": self.demo("02 Zweite Szene")["id"], "dir": -1})
-        self.assertEqual([d["id"] for d in self.demos()][:2], ["02_Zweite_Szene.mp4", "01 Größter Film & Co.mkv"])
+        self.assertEqual([d["id"] for d in self.demos()][:2], ["02_Zweite_Szene.mp4", "01 Größter Film & Co %2F.mkv"])
         self.call("/api/demos/move", {"id": self.demo("02 Zweite Szene")["id"], "dir": 1})
         open(os.path.join(self.media, "03 Neu.mkv"), "wb").close()
         self.wait(lambda s: any(d["title"] == "03 Neu" for d in self.demos()), 15, "neue Datei")
@@ -195,13 +197,24 @@ class EclipseDemoTest(unittest.TestCase):
         self.stop()
         self.assertEqual(self.call("/api/playall", {"folder": "Gibt/Es/Nicht"})[0], 400)
 
-    def test_08_browse_to_share(self):
-        root = self.call("/api/browse?path=")[1]["entries"]
-        smb = next(e for e in root if e["via"] == "host")
-        hosts = self.call(f"/api/browse?path={smb['path']}&via=host&type={smb['type']}")[1]["entries"]
-        self.assertEqual(hosts[0]["path"], "192.168.1.88")
-        shares = self.call(f"/api/browse?path=192.168.1.88&via=share&type={hosts[0]['type']}")[1]["entries"]
-        self.assertIn("Cinema", [s["name"] for s in shares])
+    def test_08_browse_and_select_folder(self):
+        def children(entry):
+            query = urlencode({k: entry[k] for k in ("path", "via", "type")})
+            code, body, _ = self.call("/api/browse?" + query)
+            self.assertEqual(code, 200, body)
+            return {item["name"]: item for item in body["entries"]}
+
+        entry = {"path": "", "via": "list", "type": 0}
+        for name in ("SMB", "/mnt/smb/192.168.1.88", "Cinema", "Demos", "Preview"):
+            entry = children(entry)[name]
+        self.assertEqual(entry["path"], FOLDER)
+        code, body, _ = self.call("/api/folder", {"path": entry["path"]})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["folder"], FOLDER)
+
+        special = children(entry)["100%2F + Grüße"]
+        self.assertEqual(special["path"], FOLDER + "/100%2F + Grüße")
+        self.assertIn("Details", children(special))
 
 
 if __name__ == "__main__":

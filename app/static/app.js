@@ -177,7 +177,7 @@ function renderStatus() {
     link = ['Home Assistant öffnen', state.haUrl];
   } else if (!z.folder) {
     bannerText = z.searching ? 'Suche den Demo-Ordner auf dem Zidoo …'
-      : 'Der Zidoo kennt den Demo-Ordner noch nicht. Lege am Zidoo die Netzwerkfreigabe der UNAS an oder wähle den Ordner von Hand.';
+      : 'Eclipse Demo hat den Demo-Ordner auf dem Zidoo noch nicht gefunden.';
     if (!z.searching) action = ['Ordner wählen', act(openBrowse)];
   } else {
     text = (z.model || 'Zidoo') + ' bereit';
@@ -238,7 +238,7 @@ function openDemo(d) {
 function positionOfThisFile() {
   const p = online() ? state.playing : null;
   const name = editId.split('/').pop().toLowerCase();
-  if (!p || !decodeURIComponent(p.path).toLowerCase().endsWith(name))
+  if (!p || p.path.replaceAll('\\', '/').split('/').pop().toLowerCase() !== name)
     throw new Error('Am Zidoo läuft gerade nicht diese Datei. Tippe auf „Anspielen“ und spule zur gewünschten Stelle.');
   return fmt(p.position / 1000);
 }

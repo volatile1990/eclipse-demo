@@ -12,11 +12,12 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 PORT, MEDIA = int(sys.argv[1]), sys.argv[2]
-SMB_DEVICE = "/tmp/ramfs/smb"
-SHARE = "/tmp/ramfs/mnt/192.168.1.88#SMB#Cinema"
+SMB_DEVICE = "/tmp/ramfs/mnt/"
+SMB_HOST = "/mnt/smb/192.168.1.88"
+SHARE = SMB_HOST + "#Cinema"
 FOLDER = SHARE + "/Demos/Preview"
 DURATION = 120_000   # jede Datei dauert 2 Minuten
 SPEED = 10           # Zeitraffer: 10 s Film pro echter Sekunde
@@ -45,13 +46,18 @@ def local(path):
 
 
 def listing(path):
+    # Der Z3000 PRO liefert absolute Pfade URL-kodiert in den JSON-Feldern.
+    if path in (SHARE, SHARE + "/Demos"):
+        name = "Demos" if path == SHARE else "Preview"
+        return {"status": 200, "isExists": True, "filelist": [
+            {"name": name, "path": quote(path + "/" + name, safe=""), "type": 0}]}
     target = local(path)
     if target is None or not os.path.isdir(target):
         return {"status": 200, "isExists": False, "filelist": []}
     entries = []
     for name in sorted(os.listdir(target)):
         full = os.path.join(target, name)
-        entries.append({"name": name, "path": path + "/" + name,
+        entries.append({"name": name, "path": quote(path + "/" + name, safe=""),
                         "type": 0 if os.path.isdir(full) else 2})
     return {"status": 200, "isExists": True, "perentPath": path.rsplit("/", 1)[0], "filelist": entries}
 
@@ -84,12 +90,11 @@ class Handler(BaseHTTPRequestHandler):
                 out["devices"] = [{"name": "Intern", "path": "/storage/emulated/0", "type": 1000},
                                   {"name": "SMB", "path": SMB_DEVICE, "type": 1005}]
             elif p == "/ZidooFileControl/getHost":
-                out["hosts"] = ([{"ip": "192.168.1.88", "type": 1005, "name": "smb://UNAS"}]
-                                if q.get("path") == SMB_DEVICE else [])
+                out["hosts"] = ([{"ip": quote(SMB_HOST, safe=""), "type": 1007, "name": SMB_HOST}]
+                                if q.get("path") == SMB_DEVICE and q.get("type") == "1005" else [])
             elif p == "/ZidooFileControl/getFileList":
-                if q.get("path") == "192.168.1.88":
-                    out["filelist"] = [{"name": "Cinema", "path": SHARE, "type": 0},
-                                       {"name": "Backups", "path": SHARE.replace("Cinema", "Backups"), "type": 0}]
+                if q.get("path") == SMB_HOST and q.get("type") == "1007":
+                    out["filelist"] = [{"name": "Cinema", "path": quote(SHARE, safe=""), "type": 0}]
                 else:
                     out = listing(q.get("path", ""))
             elif p == "/ZidooFileControl/openFile":
